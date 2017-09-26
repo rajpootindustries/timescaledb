@@ -11,9 +11,16 @@
 #include <miscadmin.h>
 #include "compat-msvc-exit.h"
 
+#include <access/relscan.h>
+#include <catalog/indexing.h>
+#include <catalog/pg_extension.h>
+#include <utils/builtins.h>
+#include <utils/fmgroids.h>
+
 #include "catalog.h"
 #include "extension.h"
 #include "guc.h"
+#include "version.h"
 
 #define EXTENSION_PROXY_TABLE "cache_inval_extension"
 
@@ -83,6 +90,95 @@ extension_exists()
 	return OidIsValid(get_extension_oid(EXTENSION_NAME, true));
 }
 
+static char *
+extension_version(void)
+{
+	Datum		result;
+	Relation	rel;
+	SysScanDesc scandesc;
+	HeapTuple	tuple;
+	ScanKeyData entry[1];
+	bool		is_null = true;
+	static char *sql_version = NULL;
+
+	rel = heap_open(ExtensionRelationId, AccessShareLock);
+
+	ScanKeyInit(&entry[0],
+				Anum_pg_extension_extname,
+				BTEqualStrategyNumber, F_NAMEEQ,
+				CStringGetDatum(EXTENSION_NAME));
+
+	scandesc = systable_beginscan(rel, ExtensionNameIndexId, true,
+								  NULL, 1, entry);
+
+	tuple = systable_getnext(scandesc);
+
+	/* We assume that there can be at most one matching tuple */
+	if (HeapTupleIsValid(tuple))
+	{
+		result = heap_getattr(tuple, Anum_pg_extension_extversion, RelationGetDescr(rel), &is_null);
+
+		if (!is_null)
+		{
+			sql_version = strdup(TextDatumGetCString(result));
+		}
+	}
+
+	systable_endscan(scandesc);
+	heap_close(rel, AccessShareLock);
+
+	if (sql_version == NULL)
+	{
+		elog(ERROR, "Extension not found when getting version");
+	}
+	return sql_version;
+}
+
+static bool inline
+extension_is_transitioning()
+{
+	/*
+	 * Determine whether the extension is being created or upgraded (as a
+	 * misnomer creating_extension is true during upgrades)
+	 */
+	if (creating_extension)
+	{
+		Oid			extension_oid = get_extension_oid(EXTENSION_NAME, true);
+
+		if (!OidIsValid(extension_oid))
+		{
+			/* be conservative */
+			return true;
+		}
+
+		if (extension_oid == CurrentExtensionObject)
+			return true;
+	}
+	return false;
+}
+
+static void
+assert_extension_version(void)
+{
+	char	   *sql_version;
+
+	if (extension_is_transitioning())
+	{
+		return;
+	}
+
+	sql_version = extension_version();
+
+	if (strcmp(sql_version, TIMESCALEDB_VERSION_MOD) != 0)
+	{
+		ereport(ERROR,
+				(errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
+				 errmsg("Mismatched timescaledb version. Shared object file %s, SQL %s", TIMESCALEDB_VERSION_MOD, sql_version),
+				 errhint("Restart postgres and then run 'ALTER EXTENSION timescaledb UPDATE'")));
+	}
+
+}
+
 /* Returns the recomputed current state */
 static enum ExtensionState
 extension_new_state()
@@ -119,6 +215,7 @@ extension_set_state(enum ExtensionState newstate)
 		case EXTENSION_STATE_UNKNOWN:
 			break;
 		case EXTENSION_STATE_CREATED:
+			assert_extension_version();
 			extension_proxy_oid = get_relname_relid(EXTENSION_PROXY_TABLE, get_namespace_oid(CACHE_SCHEMA_NAME, false));
 			catalog_reset();
 			break;
@@ -181,7 +278,6 @@ extension_invalidate(Oid relid)
 	}
 }
 
-
 bool
 extension_is_loaded(void)
 {
@@ -200,11 +296,9 @@ extension_is_loaded(void)
 	 * for example, the catalog does not go looking for things that aren't yet
 	 * there.
 	 */
-	if (creating_extension)
+	if (extension_is_transitioning())
 	{
-		Oid			extension_oid = get_extension_oid(EXTENSION_NAME, true);
-		if (OidIsValid(extension_oid) && extension_oid == CurrentExtensionObject)
-			return false;
+		return false;
 	}
 
 	switch (extstate)
