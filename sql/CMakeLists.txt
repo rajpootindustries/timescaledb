@@ -33,10 +33,15 @@ set(EXT_SQL_EXTRA_FILES
   timescaledb--0.4.2--0.5.0.sql
   timescaledb--0.5.0--0.6.0.sql
   timescaledb--0.6.0--0.6.1.sql
-  timescaledb--0.6.1--0.7.0.sql
   timescaledb--0.6.1--0.7.1.sql
-  timescaledb--0.7.0--0.7.1.sql
-  timescaledb--0.7.1--0.8.0.sql)
+  timescaledb--0.7.1--0.8.0.sql
+  )
+
+#TODO handle these
+SET(EXT_SQL_SPECIAL_FILES
+    timescaledb--0.6.1--0.7.0.sql
+    timescaledb--0.7.0--0.7.1.sql
+  )
 
 set(EXT_SQL_UPDATE_PRE_GLOBAL_FILE updates/pre-global.sql)
 set(EXT_SQL_UPDATE_POST_GLOBAL_FILE updates/post-global.sql)

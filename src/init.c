@@ -9,6 +9,7 @@
 #include "extension.h"
 #include "guc.h"
 #include "catalog.h"
+#include "version.h"
 
 #ifdef PG_MODULE_MAGIC
 PG_MODULE_MAGIC;
@@ -45,6 +46,12 @@ extern void PGDLLEXPORT _PG_fini(void);
 void
 _PG_init(void)
 {
+	/*
+	 * Check extension_is loaded to catch certain errors such as calls to
+	 * functions defined on the wrong extension version
+	 */
+	extension_check_version(TIMESCALEDB_VERSION_MOD);
+
 	_chunk_dispatch_info_init();
 	_cache_init();
 	_hypertable_cache_init();

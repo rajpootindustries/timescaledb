@@ -6,5 +6,6 @@
 
 bool		extension_invalidate(Oid relid);
 bool		extension_is_loaded(void);
+void		extension_check_version(const char *actual_version);
 
 #endif   /* TIMESCALEDB_EXTENSION_H */

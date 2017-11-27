@@ -8,16 +8,17 @@
 #include <parser/analyze.h>
 #include <nodes/print.h>
 
-
 #include "extension.h"
 
+#define PG96 ((PG_VERSION_NUM >= 90600) && (PG_VERSION_NUM < 100000))
+#define PG10 ((PG_VERSION_NUM >= 100000) && (PG_VERSION_NUM < 110000))
 /*
  * Some notes on design:
  *
  * We do not check for the installation of the extension upon loading the extension and instead rely on a hook for two reasons:
  * 1) We probably can't
  *	- The shared_preload_libraries is called in PostmasterMain which is way before InitPostgres is called.
- *			(Note: This happens even before the fork of the backend)
+ *			(Note: This happens even before the fork of the backend) -- so we don't even know which database this is for.
  *	-- This means we cannot query for the existance of the extension yet because the caches are initialized in InitPostgres.
  * 2) We actually don't want to load the extension in two cases:
  *	  a) We are upgrading the extension.
@@ -35,8 +36,8 @@ PG_MODULE_MAGIC;
 extern void _PG_init(void);
 extern void _PG_fini(void);
 
-bool		guc_disable_load = false;
-post_parse_analyze_hook_type prev_post_parse_analyze_hook;
+static bool guc_disable_load = false;
+static post_parse_analyze_hook_type prev_post_parse_analyze_hook;
 
 static void
 inval_cache_callback(Datum arg, Oid relid)
@@ -49,10 +50,15 @@ inval_cache_callback(Datum arg, Oid relid)
 static void
 post_analyze_hook(ParseState *pstate, Query *query)
 {
-	if (guc_disable_load)
-		return;
+	bool		do_load = true;
 
-	/* Don't do a load if setting timescaledb.disable_load or doing an update */
+	if (guc_disable_load)
+		do_load = false;
+
+	/*
+	 * Don't do a load if setting timescaledb.disable_load or doing an update
+	 * or dropping extension
+	 */
 	if (query->commandType == CMD_UTILITY)
 	{
 		if (IsA(query->utilityStmt, VariableSetStmt))
@@ -61,7 +67,7 @@ post_analyze_hook(ParseState *pstate, Query *query)
 
 			if (strcmp(stmt->name, GUC_DISABLE_LOAD_NAME) == 0)
 			{
-				return;
+				do_load = false;
 			}
 		}
 		else if (IsA(query->utilityStmt, AlterExtensionStmt))
@@ -72,16 +78,74 @@ post_analyze_hook(ParseState *pstate, Query *query)
 			{
 				if (extension_loaded())
 				{
+					/* disallow loading two .so from different versions */
 					ereport(ERROR,
 							(errmsg("Cannot update the extension after the old version has already been loaded"),
 							 errhint("You should start a new session and execute ALTER EXTENSION as the first command")));
 				}
 
-				return;
+				/* do not load the current (old) version's .so */
+				do_load = false;
+			}
+		}
+		else if (IsA(query->utilityStmt, CreateExtensionStmt))
+		{
+			CreateExtensionStmt *stmt = (CreateExtensionStmt *) query->utilityStmt;
+
+			if (strcmp(stmt->extname, EXTENSION_NAME) == 0)
+			{
+				if (extension_loaded())
+				{
+					/* disallow loading two .so from different versions */
+					ereport(ERROR,
+							(errmsg("Cannot create the extension after the another version has already been loaded"),
+							 errhint("You should start a new session and execute CREATE EXTENSION as the first command")));
+				}
+			}
+		}
+		else if (IsA(query->utilityStmt, DropStmt))
+		{
+			/*
+			 * This is necesary so that even if the .so is completely broken,
+			 * you can always drop the extension
+			 */
+			/* Example: Mismatched version numbers in .so and .sql */
+			DropStmt   *stmt = (DropStmt *) query->utilityStmt;
+
+			if (stmt->removeType == OBJECT_EXTENSION)
+			{
+				if (list_length(stmt->objects) == 1)
+				{
+					char	   *ext_name;
+#if PG96
+					List	   *names = linitial(stmt->objects);
+
+					Assert(list_length(names) == 1);
+					ext_name = strVal(linitial(names));
+#elif PG10
+					void	   *name = linitial(stmt->objects);
+					ext_name = strVal(name);
+#endif
+					if (strcmp(ext_name, EXTENSION_NAME) == 0)
+						do_load = false;
+				}
 			}
 		}
 	}
-	extension_check();
+	if (do_load)
+	{
+		extension_check();
+	}
+
+	/*
+	 * Call the extension's hook. This is necessary since the extension is
+	 * installed during the hook. If we did not do this the extension's hook
+	 * would not be called during the first command because the extension
+	 * would not have yet been installed. Thus the loader captures the
+	 * extension hook and calls it explicitly after the check for installing
+	 * the extension.
+	 */
+	call_extension_post_parse_analyze_hook(pstate, query);
 
 	if (prev_post_parse_analyze_hook != NULL)
 	{
@@ -129,7 +193,10 @@ _PG_init(void)
 							 NULL,
 							 NULL);
 
-	/* cannot check for extension here since not inside a transaction yet */
+	/*
+	 * cannot check for extension here since not inside a transaction yet. Nor
+	 * do we even have an assigned database yet
+	 */
 
 	CacheRegisterRelcacheCallback(inval_cache_callback, PointerGetDatum(NULL));
 

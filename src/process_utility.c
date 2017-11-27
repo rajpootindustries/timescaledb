@@ -1640,9 +1640,9 @@ timescaledb_ddl_command_start(
 	};
 	bool		altering_timescaledb = false;
 
-	if (IsA(parsetree, AlterExtensionStmt))
+	if (IsA(args.parsetree, AlterExtensionStmt))
 	{
-		AlterExtensionStmt *stmt = (AlterExtensionStmt *) parsetree;
+		AlterExtensionStmt *stmt = (AlterExtensionStmt *) args.parsetree;
 
 		altering_timescaledb = (strcmp(stmt->extname, EXTENSION_NAME) == 0);
 	}

@@ -143,40 +143,47 @@ extension_is_transitioning()
 	 */
 	if (creating_extension)
 	{
-		Oid			extension_oid = get_extension_oid(EXTENSION_NAME, true);
+		char	   *current_extension_name = get_extension_name(CurrentExtensionObject);
 
-		if (!OidIsValid(extension_oid))
+		if (NULL == current_extension_name)
 		{
-			/* be conservative */
-			return true;
+			elog(ERROR, "Unknown current extension while creating");
 		}
 
-		if (extension_oid == CurrentExtensionObject)
+		if (strcmp(EXTENSION_NAME, current_extension_name) == 0)
+		{
 			return true;
+		}
 	}
 	return false;
+}
+
+void extension_check_version(const char *actual_version)
+{
+	char	   *sql_version;
+	
+	if (!IsNormalProcessingMode() || !IsTransactionState())
+		return;
+
+	sql_version = extension_version();
+
+	if (strcmp(sql_version, actual_version) != 0)
+	{
+		ereport(ERROR,
+				(errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
+				 errmsg("Mismatched timescaledb version. Shared object file %s, SQL %s", actual_version, sql_version)));
+	}
 }
 
 static void
 assert_extension_version(void)
 {
-	char	   *sql_version;
-
 	if (extension_is_transitioning())
 	{
 		return;
 	}
 
-	sql_version = extension_version();
-
-	if (strcmp(sql_version, TIMESCALEDB_VERSION_MOD) != 0)
-	{
-		ereport(ERROR,
-				(errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
-				 errmsg("Mismatched timescaledb version. Shared object file %s, SQL %s", TIMESCALEDB_VERSION_MOD, sql_version),
-				 errhint("Restart postgres and then run 'ALTER EXTENSION timescaledb UPDATE'")));
-	}
-
+	extension_check_version(TIMESCALEDB_VERSION_MOD);
 }
 
 /* Returns the recomputed current state */
