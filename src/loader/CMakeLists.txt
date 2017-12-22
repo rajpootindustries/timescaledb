@@ -1,10 +1,8 @@
 set(HEADERS
-  extension.h
 )
 
 set(SOURCES
-  extension.c
-  init.c)
+  loader.c)
 
 add_library(${PROJECT_NAME}-loader MODULE ${SOURCES} ${HEADERS})
 

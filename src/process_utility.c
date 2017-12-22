@@ -1648,7 +1648,8 @@ timescaledb_ddl_command_start(
 	}
 
 	/*
-	 * We don't want to load the extension if we just got the command to alter it.
+	 * We don't want to load the extension if we just got the command to alter
+	 * it.
 	 */
 	if (altering_timescaledb || !extension_is_loaded())
 	{
