@@ -102,29 +102,23 @@ load_utility_cmd(Node *utilityStmt)
 			if (strcmp(((AlterExtensionStmt *) utilityStmt)->extname, EXTENSION_NAME) != 0)
 				return true;
 
+			/* disallow loading two .so from different versions */
 			if (loaded)
-			{
-				/* disallow loading two .so from different versions */
 				ereport(ERROR,
 						(errmsg("Cannot update the extension after the old version has already been loaded"),
 						 errhint("You should start a new session and execute ALTER EXTENSION as the first command")));
-			}
 
 			/* do not load the current (old) version's .so */
 			return false;
 		case T_CreateExtensionStmt:
-			if (strcmp(((CreateExtensionStmt *) utilityStmt)->extname, EXTENSION_NAME) != 0)
+			if (!loaded || strcmp(((CreateExtensionStmt *) utilityStmt)->extname, EXTENSION_NAME) != 0)
 				return true;
 
-			if (loaded)
-			{
-				/* disallow loading two .so from different versions */
-				ereport(ERROR,
-						(errmsg("Cannot create the extension after the another version has already been loaded"),
-						 errhint("You should start a new session and execute CREATE EXTENSION as the first command")));
-			}
+			/* disallow loading two .so from different versions */
+			ereport(ERROR,
+					(errmsg("Cannot create the extension after the another version has already been loaded"),
+					 errhint("You should start a new session and execute CREATE EXTENSION as the first command")));
 
-			return true;
 		case T_DropStmt:
 			if (drop_statement_drops_extension((DropStmt *) utilityStmt))
 				/* do not load when dropping */
@@ -138,16 +132,8 @@ load_utility_cmd(Node *utilityStmt)
 static void
 post_analyze_hook(ParseState *pstate, Query *query)
 {
-	if (!guc_disable_load)
-	{
-		if (query->commandType == CMD_UTILITY)
-		{
-			if (load_utility_cmd(query->utilityStmt))
-				extension_check();
-		}
-		else
-			extension_check();
-	}
+	if (!guc_disable_load && (query->commandType != CMD_UTILITY || load_utility_cmd(query->utilityStmt)))
+		extension_check();
 
 	/*
 	 * Call the extension's hook. This is necessary since the extension is

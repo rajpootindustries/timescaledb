@@ -71,7 +71,8 @@ extension_version(void)
 	ScanKeyInit(&entry[0],
 				Anum_pg_extension_extname,
 				BTEqualStrategyNumber, F_NAMEEQ,
-				CStringGetDatum(EXTENSION_NAME));
+				DirectFunctionCall1(namein, CStringGetDatum(EXTENSION_NAME))
+		);
 
 	scandesc = systable_beginscan(rel, ExtensionNameIndexId, true,
 								  NULL, 1, entry);
@@ -104,9 +105,11 @@ static bool inline
 proxy_table_exists()
 {
 	Oid			nsid = get_namespace_oid(CACHE_SCHEMA_NAME, true);
-	Oid			proxy_table = get_relname_relid(EXTENSION_PROXY_TABLE, nsid);
 
-	return OidIsValid(proxy_table);
+	if (!OidIsValid(nsid))
+		return false;
+
+	return OidIsValid(get_relname_relid(EXTENSION_PROXY_TABLE, nsid));
 }
 
 static bool inline
@@ -127,14 +130,10 @@ extension_is_transitioning()
 		char	   *current_extension_name = get_extension_name(CurrentExtensionObject);
 
 		if (NULL == current_extension_name)
-		{
 			elog(ERROR, "Unknown current extension while creating");
-		}
 
 		if (strcmp(EXTENSION_NAME, current_extension_name) == 0)
-		{
 			return true;
-		}
 	}
 	return false;
 }

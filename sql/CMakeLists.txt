@@ -106,11 +106,11 @@ add_custom_target(sqlreleaseupdate ALL DEPENDS  ${CMAKE_CURRENT_BINARY_DIR}/${EX
 
 #replace MODULE_PATHNAME in all the intermediate update files to point to $libdir/timescaledb-current_version
 set(INTERMEDIATE_UPDATE_VERSIONED "")
-FOREACH(intermediate_update_file ${EXT_SQL_EXTRA_FILES})
+foreach(intermediate_update_file ${EXT_SQL_EXTRA_FILES})
   set(intermediate_update_file_versioned ${intermediate_update_file}.${PROJECT_VERSION_MOD})
   configure_file(${intermediate_update_file} ${intermediate_update_file_versioned} @ONLY)
   list(APPEND INTERMEDIATE_UPDATE_VERSIONED ${CMAKE_CURRENT_BINARY_DIR}/${intermediate_update_file_versioned})
-ENDFOREACH(intermediate_update_file)
+endforeach(intermediate_update_file)
 
 #we expect INTERMEDIATE_UPDATE_VERSIONED to be in order. For example, it should be 1--2, 2--3.
 set(INTERMEDIATE_FILE_REGEX "${CMAKE_CURRENT_BINARY_DIR}/timescaledb--([0-9]+\\.[0-9]+\\.*[0-9]*)--([0-9]+\\.[0-9]+\\.*[0-9]*).sql.${PROJECT_VERSION_MOD}")
