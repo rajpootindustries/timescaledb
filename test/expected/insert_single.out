@@ -443,3 +443,41 @@ SELECT * FROM test_tz;
  Thu Sep 21 19:01:00 2017 | 21.2
 (3 rows)
 
+--test rollback
+BEGIN;
+\set QUIET off
+CREATE TABLE "data_records" ("time" bigint NOT NULL, "value" integer CHECK (VALUE > 0));
+CREATE TABLE
+SELECT create_hypertable('data_records', 'time', chunk_time_interval => 2592000000);
+ create_hypertable 
+-------------------
+ 
+(1 row)
+
+SAVEPOINT savepoint_1;
+SAVEPOINT
+INSERT INTO "data_records" ("time", "value") VALUES (1, 1);
+INSERT 0 1
+ROLLBACK TO SAVEPOINT savepoint_1;
+ROLLBACK
+INSERT INTO "data_records" ("time", "value") VALUES (2, 2);
+INSERT 0 1
+SAVEPOINT savepoint_2;
+SAVEPOINT
+\set ON_ERROR_STOP 0
+INSERT INTO "data_records" ("time", "value") VALUES (2, -1);
+ERROR:  new row for relation "_hyper_12_24_chunk" violates check constraint "data_records_value_check"
+\set ON_ERROR_STOP 1
+ROLLBACK TO SAVEPOINT savepoint_2;
+ROLLBACK
+INSERT INTO "data_records" ("time", "value") VALUES (3, 3);
+INSERT 0 1
+SELECT * FROM data_records;
+ time | value 
+------+-------
+    2 |     2
+    3 |     3
+(2 rows)
+
+\set QUIET on
+ROLLBACK;
