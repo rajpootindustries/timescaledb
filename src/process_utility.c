@@ -1712,16 +1712,32 @@ process_utility_AtEOXact_abort(XactEvent event, void *arg)
 	}
 }
 
+static void
+process_utility_AtSubXact_abort(SubXactEvent event, SubTransactionId mySubid,
+								SubTransactionId parentSubid, void *arg)
+{
+	switch (event)
+	{
+		case SUBXACT_EVENT_ABORT_SUB:
+			expect_chunk_modification = false;
+		default:
+			break;
+	}
+}
+
 void
 _process_utility_init(void)
 {
 	prev_ProcessUtility_hook = ProcessUtility_hook;
 	ProcessUtility_hook = timescaledb_ddl_command_start;
 	RegisterXactCallback(process_utility_AtEOXact_abort, NULL);
+	RegisterSubXactCallback(process_utility_AtSubXact_abort, NULL);
 }
 
 void
 _process_utility_fini(void)
 {
 	ProcessUtility_hook = prev_ProcessUtility_hook;
+	UnregisterXactCallback(process_utility_AtEOXact_abort, NULL);
+	UnregisterSubXactCallback(process_utility_AtSubXact_abort, NULL);
 }
