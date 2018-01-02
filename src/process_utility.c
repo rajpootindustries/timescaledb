@@ -283,9 +283,14 @@ foreach_chunk_relid(Oid relid, process_chunk_t process_chunk, void *arg)
 	int			ret;
 
 	if (NULL == ht)
+	{
+		cache_release(hcache);
 		return -1;
+	}
 
+	hcache->release_on_commit = false;
 	ret = foreach_chunk(ht, process_chunk, arg);
+	hcache->release_on_commit = true;
 
 	cache_release(hcache);
 
@@ -467,6 +472,8 @@ process_drop_index(DropStmt *stmt)
 					 */
 					chunk_index_delete(chunk, idxrelid, false);
 			}
+
+			cache_release(hcache);
 		}
 	}
 }
@@ -1059,6 +1066,8 @@ process_cluster_start(Node *parsetree, ProcessUtilityContext context)
 		chunk_indexes = chunk_index_get_mappings(ht, index_relid);
 		MemoryContextSwitchTo(old);
 
+		hcache->release_on_commit = false;
+
 		/* Commit to get out of starting transaction */
 		PopActiveSnapshot();
 		CommitTransactionCommand();
@@ -1085,6 +1094,8 @@ process_cluster_start(Node *parsetree, ProcessUtilityContext context)
 			PopActiveSnapshot();
 			CommitTransactionCommand();
 		}
+
+		hcache->release_on_commit = true;
 		/* Start a new transaction for the cleanup work. */
 		StartTransactionCommand();
 
@@ -1093,7 +1104,6 @@ process_cluster_start(Node *parsetree, ProcessUtilityContext context)
 	}
 
 	cache_release(hcache);
-
 	return false;
 }
 
